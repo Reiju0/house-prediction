@@ -130,12 +130,32 @@ def load_model() -> Any:
     try:
         with open(MODEL_PATH, "rb") as f:
             return pickle.load(f)
+    except OSError as exc:
+        err = str(exc).lower()
+        if "shared object" in err or ".so" in err or "libgthread" in err or "libglib" in err:
+            raise RuntimeError(
+                "Gagal memuat model: pustaka sistem Linux tidak ditemukan (mis. **libgthread** / GLib, sering muncul bareng PyQt5 + Orange). "
+                "Di **Streamlit Community Cloud**, tambahkan berkas **`packages.txt`** di **root repositori** (sibling `requirements.txt`) "
+                "berisi paket apt seperti `libglib2.0-0` dan `libgl1`, commit, lalu redeploy. "
+                "Repo proyek ini sudah menyertakan contoh `packages.txt`. "
+                f"Detail: {exc}"
+            ) from exc
+        raise RuntimeError(
+            "Gagal memuat model dari pickle (error sistem berkas / OS). "
+            f"Detail: {type(exc).__name__}: {exc}"
+        ) from exc
     except ImportError as exc:
         err = str(exc).lower()
         if "pyqt" in err or "pyside" in err:
             raise RuntimeError(
                 "Gagal memuat model: pickle Orange membutuhkan binding Qt (PyQt5/PySide) saat di-unpickle. "
                 "Pastikan paket **PyQt5** terinstal (sudah dicantumkan di requirements.txt), lalu deploy/instal ulang dependensi."
+            ) from exc
+        if "shared object" in err or ".so" in err or "libgthread" in err:
+            raise RuntimeError(
+                "Gagal memuat model: saat import modul native, Linux membutuhkan pustaka sistem (GLIB/Qt). "
+                "Pasang dependensi lewat **`packages.txt`** di root repo Streamlit Cloud (lihat berkas `packages.txt` pada proyek ini). "
+                f"Detail: {exc}"
             ) from exc
         raise RuntimeError(
             "Gagal memuat model: dependensi Python tidak lengkap saat memuat pickle. "
