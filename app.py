@@ -67,6 +67,8 @@ FEATURE_CONFIG = {
     },
 }
 
+# Untuk Streamlit Cloud: utamakan `model_sklearn.joblib` (hasil `export_sklearn_model.py`) — tanpa Orange/Qt.
+SKLEARN_MODEL_PATH = Path(__file__).parent / "model_sklearn.joblib"
 MODEL_PATH = Path(__file__).parent / "model_orange.pickle"
 FEATURE_ORDER = list(FEATURE_CONFIG.keys())
 
@@ -121,23 +123,38 @@ def format_rupiah_id(val: float, desimal: int = 0) -> str:
 
 
 @st.cache_resource(show_spinner="Memuat model…")
-def load_model() -> Any:
+def load_model() -> tuple[Any, str]:
+    """
+    Mengembalikan (model, nama_berkas_sumber).
+    Prioritas: model_sklearn.joblib agar deploy Streamlit Cloud tidak membutuhkan Orange/PyQt/GLIB.
+    """
+    if SKLEARN_MODEL_PATH.is_file():
+        import joblib
+
+        try:
+            return joblib.load(SKLEARN_MODEL_PATH), SKLEARN_MODEL_PATH.name
+        except Exception as exc:
+            raise RuntimeError(
+                "Gagal memuat **model_sklearn.joblib**. Buat ulang di lokal: `python export_sklearn_model.py`. "
+                f"Detail: {exc}"
+            ) from exc
+
     if not MODEL_PATH.is_file():
         raise FileNotFoundError(
-            f"File model tidak ditemukan: {MODEL_PATH.name}. "
-            "Pastikan file sudah di-commit ke repository GitHub yang sama dengan app ini."
+            "Tidak ada file model di repositori. Sertakan **`model_sklearn.joblib`** (disarankan untuk Streamlit Cloud) "
+            f"atau **`{MODEL_PATH.name}`**, lalu commit dan push."
         )
+
     try:
         with open(MODEL_PATH, "rb") as f:
-            return pickle.load(f)
+            return pickle.load(f), MODEL_PATH.name
     except OSError as exc:
         err = str(exc).lower()
         if "shared object" in err or ".so" in err or "libgthread" in err or "libglib" in err:
             raise RuntimeError(
-                "Gagal memuat model: pustaka sistem Linux tidak ditemukan (mis. **libgthread** / GLib, sering muncul bareng PyQt5 + Orange). "
-                "Di **Streamlit Community Cloud**, tambahkan berkas **`packages.txt`** di **root repositori** (sibling `requirements.txt`) "
-                "berisi paket apt seperti `libglib2.0-0` dan `libgl1`, commit, lalu redeploy. "
-                "Repo proyek ini sudah menyertakan contoh `packages.txt`. "
+                "Gagal memuat pickle Orange: pustaka Linux (GLIB/Qt) tidak tersedia. "
+                "**Solusi disarankan:** di komputer lokal jalankan `python export_sklearn_model.py`, "
+                "commit **`model_sklearn.joblib`** ke repo, dan hapus ketergantungan pickle Orange di Cloud. "
                 f"Detail: {exc}"
             ) from exc
         raise RuntimeError(
@@ -148,13 +165,13 @@ def load_model() -> Any:
         err = str(exc).lower()
         if "pyqt" in err or "pyside" in err:
             raise RuntimeError(
-                "Gagal memuat model: pickle Orange membutuhkan binding Qt (PyQt5/PySide) saat di-unpickle. "
-                "Pastikan paket **PyQt5** terinstal (sudah dicantumkan di requirements.txt), lalu deploy/instal ulang dependensi."
+                "Gagal memuat pickle Orange: diperlukan PyQt5/PySide. "
+                "Untuk Streamlit Cloud, gunakan **`model_sklearn.joblib`** (lihat `export_sklearn_model.py`)."
             ) from exc
         if "shared object" in err or ".so" in err or "libgthread" in err:
             raise RuntimeError(
-                "Gagal memuat model: saat import modul native, Linux membutuhkan pustaka sistem (GLIB/Qt). "
-                "Pasang dependensi lewat **`packages.txt`** di root repo Streamlit Cloud (lihat berkas `packages.txt` pada proyek ini). "
+                "Gagal memuat pickle: modul native membutuhkan pustaka sistem. "
+                "Gunakan **`model_sklearn.joblib`** untuk deploy tanpa GLIB/Qt. "
                 f"Detail: {exc}"
             ) from exc
         raise RuntimeError(
@@ -163,9 +180,8 @@ def load_model() -> Any:
         ) from exc
     except Exception as exc:
         raise RuntimeError(
-            "Gagal memuat model dari pickle. File mungkin rusak, bukan format Orange/sk-learn, "
-            "atau dibuat dengan versi library yang tidak kompatibel. "
-            f"Detail teknis: {type(exc).__name__}: {exc}"
+            "Gagal memuat model dari pickle. File mungkin rusak atau tidak kompatibel. "
+            f"Coba buat **model_sklearn.joblib** dengan `export_sklearn_model.py`. Detail: {type(exc).__name__}: {exc}"
         ) from exc
 
 
@@ -367,24 +383,29 @@ def main() -> None:
 """
         )
         st.info(
-            f"Model dimuat dari file **`{MODEL_PATH.name}`** di repository GitHub ini (path relatif ke `app.py`)."
+            "Model diambil dari berkas di repo (prioritas: **`model_sklearn.joblib`**, lalu pickle Orange)."
         )
-        with st.expander("File model besar / Git LFS"):
+        with st.expander("Streamlit Cloud & berkas model"):
             st.markdown(
-                "Jika `model_orange.pickle` melebihi batas ukuran Git biasa, unggah dengan "
-                "**[Git LFS](https://git-lfs.com)** atau simpan di penyimpanan eksternal lalu "
-                "unduh saat startup (kode default tetap membaca dari repo lokal)."
+                """
+- **Disarankan:** commit **`model_sklearn.joblib`** — dibuat di lokal dengan `export_sklearn_model.py`
+  (perlu `pip install orange3 PyQt5` hanya di mesin yang membaca pickle Orange).
+- Tanpa joblib, Cloud harus memuat **`model_orange.pickle`** + Orange/Qt (sering gagal atau `packages.txt` bentrok apt).
+- File besar: pertimbangkan **[Git LFS](https://git-lfs.com)** atau penyimpanan eksternal.
+"""
             )
 
     input_data: dict[str, Any] | None
     try:
-        model = load_model()
+        model, nama_model = load_model()
     except FileNotFoundError as e:
         st.error(str(e))
         st.stop()
     except RuntimeError as e:
         st.error(str(e))
         st.stop()
+
+    st.sidebar.caption(f"Sumber model aktif: `{nama_model}`")
 
     input_data = create_input_form()
 
