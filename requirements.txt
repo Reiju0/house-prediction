@@ -3,3 +3,4 @@ pandas
 numpy
 scikit-learn
 orange3
+PyQt5>=5.15

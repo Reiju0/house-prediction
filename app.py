@@ -13,36 +13,56 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-# Nama fitur dan opsi kategorik harus sama dengan nama variabel / nilai saat training di Orange.
+# Nama kunci (key) harus sama persis dengan nama variabel di Orange / tabel data saat training.
+# Contoh di bawah disesuaikan dengan model SklAdaBoostRegressor (dataset harga rumah / real estate).
 FEATURE_CONFIG = {
-    "umur": {
-        "type": "numeric",
-        "input": "slider",
-        "min": 0,
-        "max": 100,
-        "default": 30,
-    },
-    "pendapatan": {
+    "X1 transaction date": {
         "type": "numeric",
         "input": "number",
-        "min": 0,
-        "max": 100_000_000,
-        "default": 5_000_000,
+        "min": 2012.0,
+        "max": 2014.0,
+        "default": 2013.0,
+        "label": "X1 — tanggal transaksi (tahun desimal, seperti di CSV asli)",
     },
-    "lama_bekerja": {
+    "X2 house age": {
         "type": "numeric",
         "input": "slider",
-        "min": 0,
-        "max": 40,
-        "default": 5,
+        "min": 0.0,
+        "max": 50.0,
+        "default": 15.0,
+        "label": "X2 — usia bangunan (tahun)",
     },
-    "jenis_kelamin": {
-        "type": "categorical",
-        "options": ["Laki-laki", "Perempuan"],
+    "X3 distance to the nearest MRT station": {
+        "type": "numeric",
+        "input": "slider",
+        "min": 0.0,
+        "max": 7000.0,
+        "default": 500.0,
+        "label": "X3 — jarak ke stasiun MRT terdekat (m)",
     },
-    "status_pernikahan": {
-        "type": "categorical",
-        "options": ["Belum Menikah", "Menikah", "Cerai"],
+    "X4 number of convenience stores": {
+        "type": "numeric",
+        "input": "slider",
+        "min": 0.0,
+        "max": 15.0,
+        "default": 5.0,
+        "label": "X4 — jumlah minimarket di sekitar",
+    },
+    "X5 latitude": {
+        "type": "numeric",
+        "input": "number",
+        "min": 24.95,
+        "max": 25.15,
+        "default": 25.0,
+        "label": "X5 — lintang",
+    },
+    "X6 longitude": {
+        "type": "numeric",
+        "input": "number",
+        "min": 121.47,
+        "max": 121.57,
+        "default": 121.53,
+        "label": "X6 — bujur",
     },
 }
 
@@ -60,10 +80,22 @@ def load_model() -> Any:
     try:
         with open(MODEL_PATH, "rb") as f:
             return pickle.load(f)
+    except ImportError as exc:
+        err = str(exc).lower()
+        if "pyqt" in err or "pyside" in err:
+            raise RuntimeError(
+                "Gagal memuat model: pickle Orange membutuhkan binding Qt (PyQt5/PySide) saat di-unpickle. "
+                "Pastikan paket **PyQt5** terinstal (sudah dicantumkan di requirements.txt), lalu deploy/instal ulang dependensi."
+            ) from exc
+        raise RuntimeError(
+            "Gagal memuat model: dependensi Python tidak lengkap saat memuat pickle. "
+            f"Detail: {exc}"
+        ) from exc
     except Exception as exc:
         raise RuntimeError(
             "Gagal memuat model dari pickle. File mungkin rusak, bukan format Orange/sk-learn, "
-            "atau dibuat dengan versi library yang tidak kompatibel."
+            "atau dibuat dengan versi library yang tidak kompatibel. "
+            f"Detail teknis: {type(exc).__name__}: {exc}"
         ) from exc
 
 
@@ -74,10 +106,11 @@ def create_input_form() -> dict[str, Any] | None:
         input_data: dict[str, Any] = {}
 
         for name, cfg in FEATURE_CONFIG.items():
+            field_label = cfg.get("label", name.replace("_", " ").title())
             if cfg["type"] == "numeric":
                 if cfg.get("input") == "slider":
                     input_data[name] = st.slider(
-                        label=name.replace("_", " ").title(),
+                        label=field_label,
                         min_value=float(cfg["min"]),
                         max_value=float(cfg["max"]),
                         value=float(cfg["default"]),
@@ -85,7 +118,7 @@ def create_input_form() -> dict[str, Any] | None:
                     )
                 else:
                     input_data[name] = st.number_input(
-                        label=name.replace("_", " ").title(),
+                        label=field_label,
                         min_value=float(cfg["min"]),
                         max_value=float(cfg["max"]),
                         value=float(cfg["default"]),
@@ -93,7 +126,7 @@ def create_input_form() -> dict[str, Any] | None:
                     )
             else:
                 input_data[name] = st.selectbox(
-                    label=name.replace("_", " ").title(),
+                    label=field_label,
                     options=cfg["options"],
                     key=f"form_{name}",
                 )
