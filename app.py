@@ -5,6 +5,7 @@ Deployment: Streamlit Cloud; path model relatif terhadap app.py.
 
 from __future__ import annotations
 
+import math
 import pickle
 from pathlib import Path
 from typing import Any
@@ -68,6 +69,55 @@ FEATURE_CONFIG = {
 
 MODEL_PATH = Path(__file__).parent / "model_orange.pickle"
 FEATURE_ORDER = list(FEATURE_CONFIG.keys())
+
+
+def prediksi_ke_float(pred: Any) -> float:
+    """Ambil satu nilai numerik dari keluaran model (skalar, ndarray, list, dll.)."""
+    if isinstance(pred, (float, int, np.floating, np.integer)):
+        x = float(pred)
+        if math.isfinite(x):
+            return x
+        raise ValueError("Prediksi bukan angka yang valid (inf/nan).")
+    arr = np.asarray(pred, dtype=float).ravel()
+    if arr.size == 0:
+        raise ValueError("Prediksi kosong.")
+    x = float(arr.flat[0])
+    if not math.isfinite(x):
+        raise ValueError("Prediksi bukan angka yang valid (inf/nan).")
+    return x
+
+
+def format_rupiah_id(val: float, desimal: int = 0) -> str:
+    """
+    Format angka sebagai mata uang Rupiah (ribuan dipisah titik, koma untuk desimal).
+    """
+    if not math.isfinite(val):
+        return "Rp —"
+    neg = val < 0
+    val = abs(float(val))
+
+    if desimal <= 0:
+        utuh = int(round(val))
+        desimal_out = ""
+    else:
+        dibulatkan = round(val, desimal)
+        utuh = int(dibulatkan)
+        frac = int(round((dibulatkan - utuh) * (10**desimal)))
+        if frac >= 10**desimal:
+            utuh += 1
+            frac = 0
+        desimal_out = f",{frac:0{desimal}d}"
+
+    s = str(utuh)
+    kelompok: list[str] = []
+    while len(s) > 3:
+        kelompok.insert(0, s[-3:])
+        s = s[:-3]
+    if s:
+        kelompok.insert(0, s)
+    ribuan = ".".join(kelompok)
+    tanda = "-" if neg else ""
+    return f"Rp {tanda}{ribuan}{desimal_out}"
 
 
 @st.cache_resource(show_spinner="Memuat model…")
@@ -353,7 +403,17 @@ def main() -> None:
             st.stop()
 
     if pred is not None:
-        st.success(f"**Hasil prediksi:** `{pred}`")
+        try:
+            angka = prediksi_ke_float(pred)
+            tampilan = format_rupiah_id(angka)
+            st.success(f"**Perkiraan harga (prediksi model):** {tampilan}")
+            st.caption(
+                "Format ribuan memakai titik (contoh: Rp 341.000.000), sesuai penulisan Indonesia. "
+                f"Nilai regresi mentah dari model: {angka:.10g}."
+            )
+        except (TypeError, ValueError) as e:
+            st.success(f"**Hasil prediksi (mentah):** `{pred}`")
+            st.caption(f"Tidak bisa memformat sebagai angka tunggal: {e}")
         if probs is not None:
             try:
                 arr = np.asarray(probs)
